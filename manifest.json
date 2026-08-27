@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "id": "albertojb.hwmonitor",
+  "name": "HW Monitor",
+  "version": "1.0.0",
+  "author": "albertojb",
+  "license": "MIT",
+  "description": "A small desktop widget for CPU, memory, and storage. Drag it anywhere, click a drive to open it.",
+  "kinds": ["service"],
+  "keepLoaded": true,
+  "entryPoints": { "service": "HwMonitor.qml" }
+}
