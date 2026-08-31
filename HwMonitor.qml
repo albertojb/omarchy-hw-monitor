@@ -55,8 +55,8 @@ Item {
 
   Process {
     id: writer
-    command: ["sh", "-c", "mkdir -p \"$(dirname \"$1\")\" && printf '%s %s' \"$2\" \"$3\" > \"$1\"",
-              "sh", root.positionFile, String(root.posX), String(root.posY)]
+    command: ["sh", root.pluginDir + "position.sh", "write",
+              root.positionFile, String(root.posX), String(root.posY)]
   }
 
   Process {
@@ -67,13 +67,17 @@ Item {
   Process {
     id: reader
     running: true
-    command: ["sh", "-c", "cat \"$1\" 2>/dev/null || true", "sh", root.positionFile]
+    command: ["sh", root.pluginDir + "position.sh", "read", root.positionFile]
     stdout: StdioCollector {
       onStreamFinished: {
         var parts = String(text).trim().split(/\s+/)
-        if (parts.length === 2 && parts[0] !== "") {
-          root.posX = parseInt(parts[0])
-          root.posY = parseInt(parts[1])
+        if (parts.length === 2) {
+          var x = parseInt(parts[0], 10)
+          var y = parseInt(parts[1], 10)
+          if (isFinite(x) && isFinite(y)) {
+            root.posX = x
+            root.posY = y
+          }
         }
       }
     }

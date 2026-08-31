@@ -37,7 +37,11 @@ omarchy restart shell
 
 The widget stores one thing outside its own directory: the position you dragged
 it to, in `~/.local/state/omarchy/albertojb-hwmonitor-position`. Nothing else in
-your configuration is read or written.
+your configuration is read or written. Because that path is predictable, the
+widget never trusts it: it only reads a small regular file (a symlink or FIFO
+planted there is ignored, never followed or blocked on, and at most 64 bytes
+are read), and it saves by atomically renaming a private temp file over the
+target instead of writing through a shell redirection.
 
 ## Notes
 
