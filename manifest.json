@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "albertojb.hwmonitor",
   "name": "HW Monitor",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "author": "albertojb",
   "license": "MIT",
   "description": "A small desktop widget for CPU, memory, and storage. Drag it anywhere, click a drive to open it.",
