@@ -23,6 +23,15 @@ Item {
   readonly property string pluginDir: Qt.resolvedUrl(".").toString().replace("file://", "")
   readonly property string positionFile: Quickshell.env("HOME") + "/.local/state/omarchy/albertojb-hwmonitor-position"
 
+  // Consumer-side limits for the stats sample. stats.sh enforces the same
+  // caps before serializing; these are re-checked here so nothing the
+  // producer emits is trusted on its own.
+  readonly property int maxSampleBytes: 16384
+  readonly property int maxDevices: 8
+  readonly property int maxNameLength: 24
+  readonly property int maxTextLength: 32
+  readonly property int maxPathLength: 255
+
   readonly property var rows: [
     { name: "CPU", pct: root.cpu, value: root.cpu + "%", path: "" },
     { name: "MEMORY", pct: root.mem, value: root.memText, path: "" }
@@ -37,25 +46,56 @@ Item {
     if (!writer.running) writer.running = true
   }
 
+  // Validates one stats sample against the expected schema. Returns null
+  // when anything is off, so a bad sample is dropped whole rather than
+  // partially applied.
+  function validateSample(d) {
+    function pct(v) {
+      return (typeof v === "number" && isFinite(v)) ? Math.max(0, Math.min(100, Math.round(v))) : null
+    }
+    function str(v, max) {
+      return (typeof v === "string" && v.length <= max && !/[\x00-\x1f\x7f]/.test(v)) ? v : null
+    }
+    if (!d || typeof d !== "object" || Array.isArray(d)) return null
+    var cpu = pct(d.cpu), mem = pct(d.mem), memText = str(d.memText, root.maxTextLength)
+    if (cpu === null || mem === null || memText === null) return null
+    var storage = []
+    if (Array.isArray(d.storage)) {
+      for (var i = 0; i < d.storage.length && storage.length < root.maxDevices; i++) {
+        var e = d.storage[i]
+        if (!e || typeof e !== "object" || Array.isArray(e)) continue
+        var name = str(e.name, root.maxNameLength)
+        var text = str(e.text, root.maxTextLength)
+        var path = str(e.path, root.maxPathLength)
+        var p = pct(e.pct)
+        if (name === null || text === null || path === null || p === null) continue
+        if (path !== "/" && !/^\/(run\/media|media|mnt)\/./.test(path)) continue
+        storage.push({ name: name, pct: p, text: text, path: path })
+      }
+    }
+    return { cpu: cpu, mem: mem, memText: memText, storage: storage }
+  }
+
   Process {
     id: probe
     command: ["sh", root.pluginDir + "stats.sh"]
     stdout: StdioCollector {
       onStreamFinished: {
-        try {
-          var d = JSON.parse(text)
-          root.cpu = d.cpu
-          root.mem = d.mem
-          root.memText = d.memText
-          root.storage = d.storage || []
-        } catch (e) {}
+        if (text.length > root.maxSampleBytes) return
+        var sample = null
+        try { sample = root.validateSample(JSON.parse(text)) } catch (e) {}
+        if (sample === null) return
+        root.cpu = sample.cpu
+        root.mem = sample.mem
+        root.memText = sample.memText
+        root.storage = sample.storage
       }
     }
   }
 
   Process {
     id: writer
-    command: ["sh", root.pluginDir + "position.sh", "write",
+    command: ["perl", root.pluginDir + "position.pl", "write",
               root.positionFile, String(root.posX), String(root.posY)]
   }
 
@@ -67,22 +107,18 @@ Item {
   Process {
     id: reader
     running: true
-    command: ["sh", root.pluginDir + "position.sh", "read", root.positionFile]
+    command: ["perl", root.pluginDir + "position.pl", "read", root.positionFile]
     stdout: StdioCollector {
       onStreamFinished: {
-        var parts = String(text).trim().split(/\s+/)
-        if (parts.length === 2) {
-          var x = parseInt(parts[0], 10)
-          var y = parseInt(parts[1], 10)
-          if (isFinite(x) && isFinite(y)) {
-            root.posX = x
-            root.posY = y
-          }
-        }
+        // position.pl prints nothing unless the file held exactly two
+        // non-negative integers, so this only re-checks the shape.
+        var m = /^([0-9]{1,6}) ([0-9]{1,6})$/.exec(String(text).trim())
+        if (m === null) return
+        root.posX = parseInt(m[1], 10)
+        root.posY = parseInt(m[2], 10)
       }
     }
   }
-
 
   Timer {
     interval: 3000
@@ -196,10 +232,13 @@ Item {
                 width: parent.width
                 height: label.implicitHeight
 
+                // Labels and values can come from device metadata, so they
+                // are rendered as plain text, never as rich text.
                 Text {
                   id: valueText
                   anchors.right: parent.right
                   text: row.modelData.value
+                  textFormat: Text.PlainText
                   color: Color.popups.text
                   font.family: Style.font.resolvedFamily
                   font.pixelSize: Style.font.caption
@@ -210,6 +249,7 @@ Item {
                   anchors.right: valueText.left
                   anchors.rightMargin: Style.spacing.md
                   text: row.modelData.name
+                  textFormat: Text.PlainText
                   color: Color.popups.text
                   opacity: 0.7
                   font.family: Style.font.resolvedFamily
